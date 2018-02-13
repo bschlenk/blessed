@@ -4,583 +4,543 @@
  * https://github.com/chjj/blessed
  */
 
-/**
- * Modules
- */
+import * as assert from 'assert';
 
-var assert = require('assert');
+import * as colors from '../colors';
+import * as unicode from '../unicode';
+import * as helpers from '../helpers';
+import Node, { NodeOptions } from './node';
 
-var colors = require('../colors')
-  , unicode = require('../unicode');
+const nextTick = helpers.nextTick;
 
-var nextTick = global.setImmediate || process.nextTick.bind(process);
-
-var helpers = require('../helpers');
-
-var Node = require('./node');
-
-/**
- * Element
- */
-
-function Element(options) {
-  var self = this;
-
-  if (!(this instanceof Node)) {
-    return new Element(options);
-  }
-
-  options = options || {};
-
-  // Workaround to get a `scrollable` option.
-  if (options.scrollable && !this._ignore && this.type !== 'scrollable-box') {
-    var ScrollableBox = require('./scrollablebox');
-    Object.getOwnPropertyNames(ScrollableBox.prototype).forEach(function(key) {
-      if (key === 'type') return;
-      Object.defineProperty(this, key,
-        Object.getOwnPropertyDescriptor(ScrollableBox.prototype, key));
-    }, this);
-    this._ignore = true;
-    ScrollableBox.call(this, options);
-    delete this._ignore;
-    return this;
-  }
-
-  Node.call(this, options);
-
-  this.name = options.name;
-
-  options.position = options.position || {
-    left: options.left,
-    right: options.right,
-    top: options.top,
-    bottom: options.bottom,
-    width: options.width,
-    height: options.height
-  };
-
-  if (options.position.width === 'shrink'
-      || options.position.height === 'shrink') {
-    if (options.position.width === 'shrink') {
-      delete options.position.width;
-    }
-    if (options.position.height === 'shrink') {
-      delete options.position.height;
-    }
-    options.shrink = true;
-  }
-
-  this.position = options.position;
-
-  this.noOverflow = options.noOverflow;
-  this.dockBorders = options.dockBorders;
-  this.shadow = options.shadow;
-
-  this.style = options.style;
-
-  if (!this.style) {
-    this.style = {};
-    this.style.fg = options.fg;
-    this.style.bg = options.bg;
-    this.style.bold = options.bold;
-    this.style.underline = options.underline;
-    this.style.blink = options.blink;
-    this.style.inverse = options.inverse;
-    this.style.invisible = options.invisible;
-    this.style.transparent = options.transparent;
-  }
-
-  this.hidden = options.hidden || false;
-  this.fixed = options.fixed || false;
-  this.align = options.align || 'left';
-  this.valign = options.valign || 'top';
-  this.wrap = options.wrap !== false;
-  this.shrink = options.shrink;
-  this.fixed = options.fixed;
-  this.ch = options.ch || ' ';
-
-  if (typeof options.padding === 'number' || !options.padding) {
-    options.padding = {
-      left: options.padding,
-      top: options.padding,
-      right: options.padding,
-      bottom: options.padding
-    };
-  }
-
-  this.padding = {
-    left: options.padding.left || 0,
-    top: options.padding.top || 0,
-    right: options.padding.right || 0,
-    bottom: options.padding.bottom || 0
-  };
-
-  this.border = options.border;
-  if (this.border) {
-    if (typeof this.border === 'string') {
-      this.border = { type: this.border };
-    }
-    this.border.type = this.border.type || 'bg';
-    if (this.border.type === 'ascii') this.border.type = 'line';
-    this.border.ch = this.border.ch || ' ';
-    this.style.border = this.style.border || this.border.style;
-    if (!this.style.border) {
-      this.style.border = {};
-      this.style.border.fg = this.border.fg;
-      this.style.border.bg = this.border.bg;
-    }
-    //this.border.style = this.style.border;
-    if (this.border.left == null) this.border.left = true;
-    if (this.border.top == null) this.border.top = true;
-    if (this.border.right == null) this.border.right = true;
-    if (this.border.bottom == null) this.border.bottom = true;
-  }
-
-  // if (options.mouse || options.clickable) {
-  if (options.clickable) {
-    this.screen._listenMouse(this);
-  }
-
-  if (options.input || options.keyable) {
-    this.screen._listenKeys(this);
-  }
-
-  this.parseTags = options.parseTags || options.tags;
-
-  this.setContent(options.content || '', true);
-
-  if (options.label) {
-    this.setLabel(options.label);
-  }
-
-  if (options.hoverText) {
-    this.setHover(options.hoverText);
-  }
-
-  // TODO: Possibly move this to Node for onScreenEvent('mouse', ...).
-  this.on('newListener', function fn(type) {
-    // type = type.split(' ').slice(1).join(' ');
-    if (type === 'mouse'
-      || type === 'click'
-      || type === 'mouseover'
-      || type === 'mouseout'
-      || type === 'mousedown'
-      || type === 'mouseup'
-      || type === 'mousewheel'
-      || type === 'wheeldown'
-      || type === 'wheelup'
-      || type === 'mousemove') {
-      self.screen._listenMouse(self);
-    } else if (type === 'keypress' || type.indexOf('key ') === 0) {
-      self.screen._listenKeys(self);
-    }
-  });
-
-  this.on('resize', function() {
-    self.parseContent();
-  });
-
-  this.on('attach', function() {
-    self.parseContent();
-  });
-
-  this.on('detach', function() {
-    delete self.lpos;
-  });
-
-  if (options.hoverBg != null) {
-    options.hoverEffects = options.hoverEffects || {};
-    options.hoverEffects.bg = options.hoverBg;
-  }
-
-  if (this.style.hover) {
-    options.hoverEffects = this.style.hover;
-  }
-
-  if (this.style.focus) {
-    options.focusEffects = this.style.focus;
-  }
-
-  if (options.effects) {
-    if (options.effects.hover) options.hoverEffects = options.effects.hover;
-    if (options.effects.focus) options.focusEffects = options.effects.focus;
-  }
-
-  [['hoverEffects', 'mouseover', 'mouseout', '_htemp'],
-   ['focusEffects', 'focus', 'blur', '_ftemp']].forEach(function(props) {
-    var pname = props[0], over = props[1], out = props[2], temp = props[3];
-    self.screen.setEffects(self, self, over, out, self.options[pname], temp);
-  });
-
-  if (this.options.draggable) {
-    this.draggable = true;
-  }
-
-  if (options.focused) {
-    this.focus();
-  }
+// TODO: figure out these types
+export interface Position {
+  left?: any;
+  right?: any;
+  top?: any;
+  bottom?: any;
+  width?: any;
+  height?: any;
 }
 
-Element.prototype.__proto__ = Node.prototype;
+export interface Style {
+  fg?: any;
+  bg?: any;
+  bold?: any;
+  underline?: any;
+  blink?: any;
+  inverse?: any;
+  invisible?: any;
+  transparent?: any;
+}
 
-Element.prototype.type = 'element';
+export interface ElementOptions extends NodeOptions {
+  name?: string;
+  scrollable?: boolean;
+  position?: Position;
 
-Element.prototype.__defineGetter__('focused', function() {
-  return this.screen.focused === this;
-});
+  // TODO: deprecate thse and require position?
+  left?: any;
+  right?: any;
+  top?: any;
+  bottom?: any;
+  width?: any;
+  height?: any;
 
-Element.prototype.sattr = function(style, fg, bg) {
-  var bold = style.bold
-    , underline = style.underline
-    , blink = style.blink
-    , inverse = style.inverse
-    , invisible = style.invisible;
+  shrink?: boolean;
+  noOverflow?: boolean;
+  dockBorders?: boolean;
+  shadow?: any;
 
-  // if (arguments.length === 1) {
-  if (fg == null && bg == null) {
-    fg = style.fg;
-    bg = style.bg;
-  }
+  style?: Style;
 
-  // This used to be a loop, but I decided
-  // to unroll it for performance's sake.
-  if (typeof bold === 'function') bold = bold(this);
-  if (typeof underline === 'function') underline = underline(this);
-  if (typeof blink === 'function') blink = blink(this);
-  if (typeof inverse === 'function') inverse = inverse(this);
-  if (typeof invisible === 'function') invisible = invisible(this);
+  // TODO: deprecate these, require style
+  fg?: any;
+  bg?: any;
+  bold?: any;
+  underline?: any;
+  blink?: any;
+  inverse?: any;
+  invisible?: any;
+  transparent?: any;
 
-  if (typeof fg === 'function') fg = fg(this);
-  if (typeof bg === 'function') bg = bg(this);
+  hidden?: boolean;
+  // TODO; align type
+  align?: string;
+  valign?: string;
+  wrap?: boolean;
+  fixed?: boolean;
+  ch?: string;
+}
 
-  // return (this.uid << 24)
-  //   | ((this.dockBorders ? 32 : 0) << 18)
-  return ((invisible ? 16 : 0) << 18)
-    | ((inverse ? 8 : 0) << 18)
-    | ((blink ? 4 : 0) << 18)
-    | ((underline ? 2 : 0) << 18)
-    | ((bold ? 1 : 0) << 18)
-    | (colors.convert(fg) << 9)
-    | colors.convert(bg);
-};
+export default class Element extends Node {
+  public type = 'element';
 
-Element.prototype.onScreenEvent = function(type, handler) {
-  var listeners = this._slisteners = this._slisteners || [];
-  listeners.push({ type: type, handler: handler });
-  this.screen.on(type, handler);
-};
+  public name: string;
+  constructor(options: ElementOptions = {}) {
+    super(options);
 
-Element.prototype.onceScreenEvent = function(type, handler) {
-  var listeners = this._slisteners = this._slisteners || [];
-  var entry = { type: type, handler: handler };
-  listeners.push(entry);
-  this.screen.once(type, function() {
-    var i = listeners.indexOf(entry);
-    if (~i) listeners.splice(i, 1);
-    return handler.apply(this, arguments);
-  });
-};
+    // This looks really hacky...
+    // Workaround to get a `scrollable` option.
+    if (options.scrollable && !this._ignore && this.type !== 'scrollable-box') {
+      var ScrollableBox = require('./scrollablebox');
+      Object.getOwnPropertyNames(ScrollableBox.prototype).forEach(function(key) {
+        if (key === 'type') return;
+        Object.defineProperty(this, key,
+          Object.getOwnPropertyDescriptor(ScrollableBox.prototype, key));
+      }, this);
+      this._ignore = true;
+      ScrollableBox.call(this, options);
+      delete this._ignore;
+      return this;
+    }
 
-Element.prototype.removeScreenEvent = function(type, handler) {
-  var listeners = this._slisteners = this._slisteners || [];
-  for (var i = 0; i < listeners.length; i++) {
-    var listener = listeners[i];
-    if (listener.type === type && listener.handler === handler) {
-      listeners.splice(i, 1);
-      if (this._slisteners.length === 0) {
-        delete this._slisteners;
+    this.name = options.name;
+
+    options.position = options.position || {
+      left: options.left,
+      right: options.right,
+      top: options.top,
+      bottom: options.bottom,
+      width: options.width,
+      height: options.height
+    };
+
+    if (options.position.width === 'shrink'
+        || options.position.height === 'shrink') {
+      if (options.position.width === 'shrink') {
+        delete options.position.width;
       }
-      break;
-    }
-  }
-  this.screen.removeListener(type, handler);
-};
-
-Element.prototype.free = function() {
-  var listeners = this._slisteners = this._slisteners || [];
-  for (var i = 0; i < listeners.length; i++) {
-    var listener = listeners[i];
-    this.screen.removeListener(listener.type, listener.handler);
-  }
-  delete this._slisteners;
-};
-
-Element.prototype.hide = function() {
-  if (this.hidden) return;
-  this.clearPos();
-  this.hidden = true;
-  this.emit('hide');
-  if (this.screen.focused === this) {
-    this.screen.rewindFocus();
-  }
-};
-
-Element.prototype.show = function() {
-  if (!this.hidden) return;
-  this.hidden = false;
-  this.emit('show');
-};
-
-Element.prototype.toggle = function() {
-  return this.hidden ? this.show() : this.hide();
-};
-
-Element.prototype.focus = function() {
-  return this.screen.focused = this;
-};
-
-Element.prototype.setContent = function(content, noClear, noTags) {
-  if (!noClear) this.clearPos();
-  this.content = content || '';
-  this.parseContent(noTags);
-  this.emit('set content');
-};
-
-Element.prototype.getContent = function() {
-  if (!this._clines) return '';
-  return this._clines.fake.join('\n');
-};
-
-Element.prototype.setText = function(content, noClear) {
-  content = content || '';
-  content = content.replace(/\x1b\[[\d;]*m/g, '');
-  return this.setContent(content, noClear, true);
-};
-
-Element.prototype.getText = function() {
-  return this.getContent().replace(/\x1b\[[\d;]*m/g, '');
-};
-
-Element.prototype.parseContent = function(noTags) {
-  if (this.detached) return false;
-
-  var width = this.width - this.iwidth;
-  if (this._clines == null
-      || this._clines.width !== width
-      || this._clines.content !== this.content) {
-    var content = this.content;
-
-    content = content
-      .replace(/[\x00-\x08\x0b-\x0c\x0e-\x1a\x1c-\x1f\x7f]/g, '')
-      .replace(/\x1b(?!\[[\d;]*m)/g, '')
-      .replace(/\r\n|\r/g, '\n')
-      .replace(/\t/g, this.screen.tabc);
-
-    if (this.screen.fullUnicode) {
-      // double-width chars will eat the next char after render. create a
-      // blank character after it so it doesn't eat the real next char.
-      content = content.replace(unicode.chars.all, '$1\x03');
-      // iTerm2 cannot render combining characters properly.
-      if (this.screen.program.isiTerm2) {
-        content = content.replace(unicode.chars.combining, '');
+      if (options.position.height === 'shrink') {
+        delete options.position.height;
       }
-    } else {
-      // no double-width: replace them with question-marks.
-      content = content.replace(unicode.chars.all, '??');
-      // delete combining characters since they're 0-width anyway.
-      // NOTE: We could drop this, the non-surrogates would get changed to ? by
-      // the unicode filter, and surrogates changed to ? by the surrogate
-      // regex. however, the user might expect them to be 0-width.
-      // NOTE: Might be better for performance to drop!
-      content = content.replace(unicode.chars.combining, '');
-      // no surrogate pairs: replace them with question-marks.
-      content = content.replace(unicode.chars.surrogate, '?');
-      // XXX Deduplicate code here:
-      // content = helpers.dropUnicode(content);
+      options.shrink = true;
     }
 
-    if (!noTags) {
-      content = this._parseTags(content);
+    this.position = options.position;
+
+    this.noOverflow = options.noOverflow;
+    this.dockBorders = options.dockBorders;
+    this.shadow = options.shadow;
+
+    this.style = options.style;
+
+    if (!this.style) {
+      this.style = {};
+      this.style.fg = options.fg;
+      this.style.bg = options.bg;
+      this.style.bold = options.bold;
+      this.style.underline = options.underline;
+      this.style.blink = options.blink;
+      this.style.inverse = options.inverse;
+      this.style.invisible = options.invisible;
+      this.style.transparent = options.transparent;
     }
 
-    this._clines = this._wrapContent(content, width);
-    this._clines.width = width;
-    this._clines.content = this.content;
-    this._clines.attr = this._parseAttr(this._clines);
-    this._clines.ci = [];
-    this._clines.reduce(function(total, line) {
-      this._clines.ci.push(total);
-      return total + line.length + 1;
-    }.bind(this), 0);
+    this.hidden = options.hidden || false;
+    this.fixed = options.fixed || false;
+    this.align = options.align || 'left';
+    this.valign = options.valign || 'top';
+    this.wrap = options.wrap !== false;
+    this.shrink = options.shrink;
+    this.fixed = options.fixed;
+    this.ch = options.ch || ' ';
 
-    this._pcontent = this._clines.join('\n');
-    this.emit('parsed content');
+    if (typeof options.padding === 'number' || !options.padding) {
+      options.padding = {
+        left: options.padding,
+        top: options.padding,
+        right: options.padding,
+        bottom: options.padding
+      };
+    }
 
-    return true;
+    this.padding = {
+      left: options.padding.left || 0,
+      top: options.padding.top || 0,
+      right: options.padding.right || 0,
+      bottom: options.padding.bottom || 0
+    };
+
+    this.border = options.border;
+    if (this.border) {
+      if (typeof this.border === 'string') {
+        this.border = { type: this.border };
+      }
+      this.border.type = this.border.type || 'bg';
+      if (this.border.type === 'ascii') this.border.type = 'line';
+      this.border.ch = this.border.ch || ' ';
+      this.style.border = this.style.border || this.border.style;
+      if (!this.style.border) {
+        this.style.border = {};
+        this.style.border.fg = this.border.fg;
+        this.style.border.bg = this.border.bg;
+      }
+      if (this.border.left == null) this.border.left = true;
+      if (this.border.top == null) this.border.top = true;
+      if (this.border.right == null) this.border.right = true;
+      if (this.border.bottom == null) this.border.bottom = true;
+    }
+
+    if (options.clickable) {
+      this.screen._listenMouse(this);
+    }
+
+    if (options.input || options.keyable) {
+      this.screen._listenKeys(this);
+    }
+
+    this.parseTags = options.parseTags || options.tags;
+
+    this.setContent(options.content || '', true);
+
+    if (options.label) {
+      this.setLabel(options.label);
+    }
+
+    if (options.hoverText) {
+      this.setHover(options.hoverText);
+    }
+
+    // TODO: Possibly move this to Node for onScreenEvent('mouse', ...).
+    this.on('newListener', (type: string) => {
+      if (type === 'mouse'
+        || type === 'click'
+        || type === 'mouseover'
+        || type === 'mouseout'
+        || type === 'mousedown'
+        || type === 'mouseup'
+        || type === 'mousewheel'
+        || type === 'wheeldown'
+        || type === 'wheelup'
+        || type === 'mousemove') {
+        this.screen._listenMouse(self);
+      } else if (type === 'keypress' || type.indexOf('key ') === 0) {
+        this.screen._listenKeys(self);
+      }
+    });
+
+    this.on('resize', () => {
+      this.parseContent();
+    });
+
+    this.on('attach', () => {
+      this.parseContent();
+    });
+
+    this.on('detach', () => {
+      delete this.lpos;
+    });
+
+    if (options.hoverBg != null) {
+      options.hoverEffects = options.hoverEffects || {};
+      options.hoverEffects.bg = options.hoverBg;
+    }
+
+    if (this.style.hover) {
+      options.hoverEffects = this.style.hover;
+    }
+
+    if (this.style.focus) {
+      options.focusEffects = this.style.focus;
+    }
+
+    if (options.effects) {
+      if (options.effects.hover) options.hoverEffects = options.effects.hover;
+      if (options.effects.focus) options.focusEffects = options.effects.focus;
+    }
+
+    [
+      ['hoverEffects', 'mouseover', 'mouseout', '_htemp'],
+      ['focusEffects', 'focus', 'blur', '_ftemp'],
+    ].forEach(([pname, over, out, temp]) => {
+      this.screen.setEffects(this, this, over, out, this.options[pname], temp);
+    });
+
+    if (this.options.draggable) {
+      this.draggable = true;
+    }
+
+    if (options.focused) {
+      this.focus();
+    }
   }
 
-  // Need to calculate this every time because the default fg/bg may change.
-  this._clines.attr = this._parseAttr(this._clines) || this._clines.attr;
+  get focused(): boolean {
+    return this.screen.focused === this;
+  }
 
-  return false;
-};
+  sattr(style: Style, fg: string, bg: string) {
+    let {
+      bold,
+      underline,
+      blink,
+      inverse,
+      invisible,
+    } = style;
 
-// Convert `{red-fg}foo{/red-fg}` to `\x1b[31mfoo\x1b[39m`.
-Element.prototype._parseTags = function(text) {
-  if (!this.parseTags) return text;
-  if (!/{\/?[\w\-,;!#]*}/.test(text)) return text;
-
-  var program = this.screen.program
-    , out = ''
-    , state
-    , bg = []
-    , fg = []
-    , flag = []
-    , cap
-    , slash
-    , param
-    , attr
-    , esc;
-
-  for (;;) {
-    if (!esc && (cap = /^{escape}/.exec(text))) {
-      text = text.substring(cap[0].length);
-      esc = true;
-      continue;
+    if (fg == null && bg == null) {
+      fg = style.fg;
+      bg = style.bg;
     }
 
-    if (esc && (cap = /^([\s\S]+?){\/escape}/.exec(text))) {
-      text = text.substring(cap[0].length);
-      out += cap[1];
-      esc = false;
-      continue;
-    }
-
-    if (esc) {
-      // throw new Error('Unterminated escape tag.');
-      out += text;
-      break;
-    }
-
-    if (cap = /^{(\/?)([\w\-,;!#]*)}/.exec(text)) {
-      text = text.substring(cap[0].length);
-      slash = cap[1] === '/';
-      param = cap[2].replace(/-/g, ' ');
-
-      if (param === 'open') {
-        out += '{';
-        continue;
-      } else if (param === 'close') {
-        out += '}';
-        continue;
+    const call = (val) => {
+      if (typeof val === 'function') {
+        return val(this);
       }
+      return val;
+    }
 
-      if (param.slice(-3) === ' bg') state = bg;
-      else if (param.slice(-3) === ' fg') state = fg;
-      else state = flag;
+    bold = call(bold);
+    underline = call(underline);
+    blink = call(blink);
+    inverse = call(inverse);
+    invisible = call(invisible);
 
-      if (slash) {
-        if (!param) {
-          out += program._attr('normal');
-          bg.length = 0;
-          fg.length = 0;
-          flag.length = 0;
-        } else {
-          attr = program._attr(param, false);
-          if (attr == null) {
-            out += cap[0];
-          } else {
-            // if (param !== state[state.length - 1]) {
-            //   throw new Error('Misnested tags.');
-            // }
-            state.pop();
-            if (state.length) {
-              out += program._attr(state[state.length - 1]);
-            } else {
-              out += attr;
-            }
-          }
+    fg = call(fg);
+    bg = call(bg);
+
+    // TOOD: understand this
+    return ((invisible ? 16 : 0) << 18)
+      | ((inverse ? 8 : 0) << 18)
+      | ((blink ? 4 : 0) << 18)
+      | ((underline ? 2 : 0) << 18)
+      | ((bold ? 1 : 0) << 18)
+      | (colors.convert(fg) << 9)
+      | colors.convert(bg);
+  }
+
+  onScreenEvent(type: string, handler) {
+    const listeners = this._slisteners = this._slisteners || [];
+    listeners.push({ type, handler });
+    this.screen.on(type, handler);
+  }
+
+  onceScreenEvent(type: string, handler) {
+    var listeners = this._slisteners = this._slisteners || [];
+    var entry = { type, handler };
+    listeners.push(entry);
+    this.screen.once(type, () => {
+      var i = listeners.indexOf(entry);
+      if (i !== -1) {
+        listeners.splice(i, 1);
+      }
+      return handler.apply(this, arguments);
+    });
+  }
+
+  removeScreenEvent(type: string, handler) {
+    const listeners = this._slisteners = this._slisteners || [];
+    for (var i = 0; i < listeners.length; i++) {
+      const listener = listeners[i];
+      if (listener.type === type && listener.handler === handler) {
+        listeners.splice(i, 1);
+        if (this._slisteners.length === 0) {
+          delete this._slisteners;
+        }
+        break;
+      }
+    }
+    this.screen.removeListener(type, handler);
+  }
+
+  free() {
+    const listeners = this._slisteners = this._slisteners || [];
+    for (let { type, handler } of listeners) {
+      this.screen.removeListener(type, handler);
+    }
+    delete this._slisteners;
+  }
+
+  hide() {
+    if (this.hidden) {
+      return;
+    }
+    this.clearPos();
+    this.hidden = true;
+    this.emit('hide');
+    if (this.screen.focused === this) {
+      this.screen.rewindFocus();
+    }
+  }
+
+  show() {
+    if (!this.hidden) {
+      return;
+    }
+    this.hidden = false;
+    this.emit('show');
+  }
+
+  toggle() {
+    return this.hidden ? this.show() : this.hide();
+  }
+
+  focus() {
+    return this.screen.focused = this;
+  }
+
+  setContent(content, noClear, noTags) {
+    if (!noClear) {
+      this.clearPos();
+    }
+    this.content = content || '';
+    this.parseContent(noTags);
+    this.emit('set content');
+  }
+
+  getContent() {
+    if (!this._clines) {
+      return '';
+    }
+    return this._clines.fake.join('\n');
+  }
+
+  setText(content, noClear) {
+    content = content || '';
+    content = content.replace(/\x1b\[[\d;]*m/g, '');
+    return this.setContent(content, noClear, true);
+  }
+
+  getText() {
+    return this.getContent().replace(/\x1b\[[\d;]*m/g, '');
+  }
+
+  parseContent(noTags) {
+    if (this.detached) {
+      return false;
+    }
+
+    var width = this.width - this.iwidth;
+    if (this._clines == null
+        || this._clines.width !== width
+        || this._clines.content !== this.content) {
+      var content = this.content;
+
+      content = content
+        .replace(/[\x00-\x08\x0b-\x0c\x0e-\x1a\x1c-\x1f\x7f]/g, '')
+        .replace(/\x1b(?!\[[\d;]*m)/g, '')
+        .replace(/\r\n|\r/g, '\n')
+        .replace(/\t/g, this.screen.tabc);
+
+      if (this.screen.fullUnicode) {
+        // double-width chars will eat the next char after render. create a
+        // blank character after it so it doesn't eat the real next char.
+        content = content.replace(unicode.chars.all, '$1\x03');
+        // iTerm2 cannot render combining characters properly.
+        if (this.screen.program.isiTerm2) {
+          content = content.replace(unicode.chars.combining, '');
         }
       } else {
-        if (!param) {
-          out += cap[0];
-        } else {
-          attr = program._attr(param);
-          if (attr == null) {
-            out += cap[0];
-          } else {
-            state.push(param);
-            out += attr;
+        // no double-width: replace them with question-marks.
+        content = content.replace(unicode.chars.all, '??');
+        // delete combining characters since they're 0-width anyway.
+        // NOTE: We could drop this, the non-surrogates would get changed to ? by
+        // the unicode filter, and surrogates changed to ? by the surrogate
+        // regex. however, the user might expect them to be 0-width.
+        // NOTE: Might be better for performance to drop!
+        content = content.replace(unicode.chars.combining, '');
+        // no surrogate pairs: replace them with question-marks.
+        content = content.replace(unicode.chars.surrogate, '?');
+        // XXX Deduplicate code here:
+        // content = helpers.dropUnicode(content);
+      }
+
+      if (!noTags) {
+        content = this._parseTags(content);
+      }
+
+      this._clines = this._wrapContent(content, width);
+      this._clines.width = width;
+      this._clines.content = this.content;
+      this._clines.attr = this._parseAttr(this._clines);
+      this._clines.ci = [];
+      this._clines.reduce((total, line) => {
+        this._clines.ci.push(total);
+        return total + line.length + 1;
+      }, 0);
+
+      this._pcontent = this._clines.join('\n');
+      this.emit('parsed content');
+
+      return true;
+    }
+
+    // Need to calculate this every time because the default fg/bg may change.
+    this._clines.attr = this._parseAttr(this._clines) || this._clines.attr;
+
+    return false;
+  };
+
+  // Convert `{red-fg}foo{/red-fg}` to `\x1b[31mfoo\x1b[39m`.
+  _parseTags(text: string): string {
+    if (!this.parseTags) {
+      return text;
+    }
+
+    return helpers.parseTags(text, this.screen);
+  }
+
+  _parseAttr(lines) {
+    var dattr = this.sattr(this.style)
+      , attr = dattr
+      , attrs = []
+      , line
+      , i
+      , j
+      , c;
+
+    if (lines[0].attr === attr) {
+      return;
+    }
+
+    for (j = 0; j < lines.length; j++) {
+      line = lines[j];
+      attrs[j] = attr;
+      for (i = 0; i < line.length; i++) {
+        if (line[i] === '\x1b') {
+          if (c = /^\x1b\[[\d;]*m/.exec(line.substring(i))) {
+            attr = this.screen.attrCode(c[0], attr, dattr);
+            i += c[0].length - 1;
           }
         }
       }
-
-      continue;
     }
 
-    if (cap = /^[\s\S]+?(?={\/?[\w\-,;!#]*})/.exec(text)) {
-      text = text.substring(cap[0].length);
-      out += cap[0];
-      continue;
+    return attrs;
+  }
+
+  _align(line, width, align) {
+    if (!align) return line;
+    //if (!align && !~line.indexOf('{|}')) return line;
+
+    var cline = line.replace(/\x1b\[[\d;]*m/g, '')
+      , len = cline.length
+      , s = width - len;
+
+    if (this.shrink) {
+      s = 0;
     }
 
-    out += text;
-    break;
-  }
+    if (len === 0) return line;
+    if (s < 0) return line;
 
-  return out;
-};
-
-Element.prototype._parseAttr = function(lines) {
-  var dattr = this.sattr(this.style)
-    , attr = dattr
-    , attrs = []
-    , line
-    , i
-    , j
-    , c;
-
-  if (lines[0].attr === attr) {
-    return;
-  }
-
-  for (j = 0; j < lines.length; j++) {
-    line = lines[j];
-    attrs[j] = attr;
-    for (i = 0; i < line.length; i++) {
-      if (line[i] === '\x1b') {
-        if (c = /^\x1b\[[\d;]*m/.exec(line.substring(i))) {
-          attr = this.screen.attrCode(c[0], attr, dattr);
-          i += c[0].length - 1;
-        }
-      }
+    if (align === 'center') {
+      s = Array(((s / 2) | 0) + 1).join(' ');
+      return s + line + s;
+    } else if (align === 'right') {
+      s = Array(s + 1).join(' ');
+      return s + line;
+    } else if (this.parseTags && ~line.indexOf('{|}')) {
+      var parts = line.split('{|}');
+      var cparts = cline.split('{|}');
+      s = Math.max(width - cparts[0].length - cparts[1].length, 0);
+      s = Array(s + 1).join(' ');
+      return parts[0] + s + parts[1];
     }
+
+    return line;
   }
-
-  return attrs;
-};
-
-Element.prototype._align = function(line, width, align) {
-  if (!align) return line;
-  //if (!align && !~line.indexOf('{|}')) return line;
-
-  var cline = line.replace(/\x1b\[[\d;]*m/g, '')
-    , len = cline.length
-    , s = width - len;
-
-  if (this.shrink) {
-    s = 0;
-  }
-
-  if (len === 0) return line;
-  if (s < 0) return line;
-
-  if (align === 'center') {
-    s = Array(((s / 2) | 0) + 1).join(' ');
-    return s + line + s;
-  } else if (align === 'right') {
-    s = Array(s + 1).join(' ');
-    return s + line;
-  } else if (this.parseTags && ~line.indexOf('{|}')) {
-    var parts = line.split('{|}');
-    var cparts = cline.split('{|}');
-    s = Math.max(width - cparts[0].length - cparts[1].length, 0);
-    s = Array(s + 1).join(' ');
-    return parts[0] + s + parts[1];
-  }
-
-  return line;
-};
 
 Element.prototype._wrapContent = function(content, width) {
   var tags = this.parseTags
@@ -897,391 +857,414 @@ Element.prototype.setBack = function() {
   return this.setIndex(0);
 };
 
-Element.prototype.clearPos = function(get, override) {
-  if (this.detached) return;
-  var lpos = this._getCoords(get);
-  if (!lpos) return;
-  this.screen.clearRegion(
-    lpos.xi, lpos.xl,
-    lpos.yi, lpos.yl,
-    override);
-};
-
-Element.prototype.setLabel = function(options) {
-  var self = this;
-  var Box = require('./box');
-
-  if (typeof options === 'string') {
-    options = { text: options };
-  }
-
-  if (this._label) {
-    this._label.setContent(options.text);
-    if (options.side !== 'right') {
-      this._label.rleft = 2 + (this.border ? -1 : 0);
-      this._label.position.right = undefined;
-      if (!this.screen.autoPadding) {
-        this._label.rleft = 2;
-      }
-    } else {
-      this._label.rright = 2 + (this.border ? -1 : 0);
-      this._label.position.left = undefined;
-      if (!this.screen.autoPadding) {
-        this._label.rright = 2;
-      }
+  clearPos(get, override) {
+    if (this.detached) {
+      return;
     }
-    return;
-  }
-
-  this._label = new Box({
-    screen: this.screen,
-    parent: this,
-    content: options.text,
-    top: -this.itop,
-    tags: this.parseTags,
-    shrink: true,
-    style: this.style.label
-  });
-
-  if (options.side !== 'right') {
-    this._label.rleft = 2 - this.ileft;
-  } else {
-    this._label.rright = 2 - this.iright;
-  }
-
-  this._label._isLabel = true;
-
-  if (!this.screen.autoPadding) {
-    if (options.side !== 'right') {
-      this._label.rleft = 2;
-    } else {
-      this._label.rright = 2;
+    const lpos = this._getCoords(get);
+    if (!lpos) {
+      return;
     }
-    this._label.rtop = 0;
-  }
-
-  var reposition = function() {
-    self._label.rtop = (self.childBase || 0) - self.itop;
-    if (!self.screen.autoPadding) {
-      self._label.rtop = (self.childBase || 0);
-    }
-    self.screen.render();
+    this.screen.clearRegion(
+      lpos.xi,
+      lpos.xl,
+      lpos.yi,
+      lpos.yl,
+      override,
+    );
   };
 
-  this.on('scroll', this._labelScroll = function() {
-    reposition();
-  });
+  setLabel(options) {
+    // TODO: import at top
+    const Box = require('./box');
 
-  this.on('resize', this._labelResize = function() {
-    nextTick(function() {
+    if (typeof options === 'string') {
+      options = { text: options };
+    }
+
+    if (this._label) {
+      this._label.setContent(options.text);
+      if (options.side !== 'right') {
+        this._label.rleft = 2 + (this.border ? -1 : 0);
+        this._label.position.right = undefined;
+        if (!this.screen.autoPadding) {
+          this._label.rleft = 2;
+        }
+      } else {
+        this._label.rright = 2 + (this.border ? -1 : 0);
+        this._label.position.left = undefined;
+        if (!this.screen.autoPadding) {
+          this._label.rright = 2;
+        }
+      }
+      return;
+    }
+
+    this._label = new Box({
+      screen: this.screen,
+      parent: this,
+      content: options.text,
+      top: -this.itop,
+      tags: this.parseTags,
+      shrink: true,
+      style: this.style.label
+    });
+
+    if (options.side !== 'right') {
+      this._label.rleft = 2 - this.ileft;
+    } else {
+      this._label.rright = 2 - this.iright;
+    }
+
+    this._label._isLabel = true;
+
+    if (!this.screen.autoPadding) {
+      if (options.side !== 'right') {
+        this._label.rleft = 2;
+      } else {
+        this._label.rright = 2;
+      }
+      this._label.rtop = 0;
+    }
+
+    const reposition = () => {
+      this._label.rtop = (this.childBase || 0) - this.itop;
+      if (!this.screen.autoPadding) {
+        this._label.rtop = (this.childBase || 0);
+      }
+      this.screen.render();
+    };
+
+    this.on('scroll', this._labelScroll = () => {
       reposition();
     });
-  });
-};
 
-Element.prototype.removeLabel = function() {
-  if (!this._label) return;
-  this.removeListener('scroll', this._labelScroll);
-  this.removeListener('resize', this._labelResize);
-  this._label.detach();
-  delete this._labelScroll;
-  delete this._labelResize;
-  delete this._label;
-};
+    this.on('resize', this._labelResize = () => {
+      nextTick(reposition);
+    });
+  };
 
-Element.prototype.setHover = function(options) {
-  if (typeof options === 'string') {
-    options = { text: options };
+  removeLabel() {
+    if (!this._label) {
+      return;
+    }
+    this.removeListener('scroll', this._labelScroll);
+    this.removeListener('resize', this._labelResize);
+    this._label.detach();
+    delete this._labelScroll;
+    delete this._labelResize;
+    delete this._label;
   }
 
-  this._hoverOptions = options;
-  this.enableMouse();
-  this.screen._initHover();
-};
+  setHover(options) {
+    if (typeof options === 'string') {
+      options = { text: options };
+    }
 
-Element.prototype.removeHover = function() {
-  delete this._hoverOptions;
-  if (!this.screen._hoverText || this.screen._hoverText.detached) return;
-  this.screen._hoverText.detach();
-  this.screen.render();
-};
+    this._hoverOptions = options;
+    this.enableMouse();
+    this.screen._initHover();
+  }
 
-/**
- * Positioning
- */
+  removeHover() {
+    delete this._hoverOptions;
+    if (!this.screen._hoverText || this.screen._hoverText.detached) {
+      return;
+    }
+    this.screen._hoverText.detach();
+    this.screen.render();
+  }
 
-// The below methods are a bit confusing: basically
-// whenever Box.render is called `lpos` gets set on
-// the element, an object containing the rendered
-// coordinates. Since these don't update if the
-// element is moved somehow, they're unreliable in
-// that situation. However, if we can guarantee that
-// lpos is good and up to date, it can be more
-// accurate than the calculated positions below.
-// In this case, if the element is being rendered,
-// it's guaranteed that the parent will have been
-// rendered first, in which case we can use the
-// parant's lpos instead of recalculating it's
-// position (since that might be wrong because
-// it doesn't handle content shrinkage).
+  /**
+   * Positioning
+   */
 
-Element.prototype._getPos = function() {
-  var pos = this.lpos;
+  // The below methods are a bit confusing: basically
+  // whenever Box.render is called `lpos` gets set on
+  // the element, an object containing the rendered
+  // coordinates. Since these don't update if the
+  // element is moved somehow, they're unreliable in
+  // that situation. However, if we can guarantee that
+  // lpos is good and up to date, it can be more
+  // accurate than the calculated positions below.
+  // In this case, if the element is being rendered,
+  // it's guaranteed that the parent will have been
+  // rendered first, in which case we can use the
+  // parant's lpos instead of recalculating it's
+  // position (since that might be wrong because
+  // it doesn't handle content shrinkage).
 
-  assert.ok(pos);
+  _getPos() {
+    const pos = this.lpos;
 
-  if (pos.aleft != null) return pos;
+    assert.ok(pos);
 
-  pos.aleft = pos.xi;
-  pos.atop = pos.yi;
-  pos.aright = this.screen.cols - pos.xl;
-  pos.abottom = this.screen.rows - pos.yl;
-  pos.width = pos.xl - pos.xi;
-  pos.height = pos.yl - pos.yi;
+    if (pos.aleft != null) {
+      return pos;
+    }
 
-  return pos;
-};
+    pos.aleft = pos.xi;
+    pos.atop = pos.yi;
+    pos.aright = this.screen.cols - pos.xl;
+    pos.abottom = this.screen.rows - pos.yl;
+    pos.width = pos.xl - pos.xi;
+    pos.height = pos.yl - pos.yi;
 
-/**
- * Position Getters
- */
+    return pos;
+  }
 
-Element.prototype._getWidth = function(get) {
-  var parent = get ? this.parent._getPos() : this.parent
-    , width = this.position.width
-    , left
-    , expr;
+  /**
+   * Position Getters
+   */
 
-  if (typeof width === 'string') {
-    if (width === 'half') width = '50%';
-    expr = width.split(/(?=\+|-)/);
-    width = expr[0];
-    width = +width.slice(0, -1) / 100;
-    width = parent.width * width | 0;
-    width += +(expr[1] || 0);
+  _getWidth(get: boolean) {
+    const parent = get ? this.parent._getPos() : this.parent;
+    let width = this.position.width;
+    let left;
+    let expr;
+
+    if (typeof width === 'string') {
+      if (width === 'half') {
+        width = '50%';
+      }
+      expr = width.split(/(?=\+|-)/);
+      width = expr[0];
+      width = +width.slice(0, -1) / 100;
+      width = parent.width * width | 0;
+      width += +(expr[1] || 0);
+      return width;
+    }
+
+    // This is for if the element is being streched or shrunken.
+    // Although the width for shrunken elements is calculated
+    // in the render function, it may be calculated based on
+    // the content width, and the content width is initially
+    // decided by the width the element, so it needs to be
+    // calculated here.
+    if (width == null) {
+      left = this.position.left || 0;
+      if (typeof left === 'string') {
+        if (left === 'center') {
+          left = '50%';
+        }
+        expr = left.split(/(?=\+|-)/);
+        left = expr[0];
+        left = +left.slice(0, -1) / 100;
+        left = parent.width * left | 0;
+        left += +(expr[1] || 0);
+      }
+      width = parent.width - (this.position.right || 0) - left;
+      if (this.screen.autoPadding) {
+        if ((this.position.left != null || this.position.right == null)
+            && this.position.left !== 'center') {
+          width -= this.parent.ileft;
+        }
+        width -= this.parent.iright;
+      }
+    }
+
     return width;
   }
 
-  // This is for if the element is being streched or shrunken.
-  // Although the width for shrunken elements is calculated
-  // in the render function, it may be calculated based on
-  // the content width, and the content width is initially
-  // decided by the width the element, so it needs to be
-  // calculated here.
-  if (width == null) {
-    left = this.position.left || 0;
+  get width() {
+    return this._getWidth(false);
+  }
+
+  _getHeight(get: boolean) {
+    const parent = get ? this.parent._getPos() : this.parent;
+    let height = this.position.height;
+    let top;
+    let expr;
+
+    if (typeof height === 'string') {
+      if (height === 'half') {
+        height = '50%';
+      }
+      expr = height.split(/(?=\+|-)/);
+      height = expr[0];
+      height = +height.slice(0, -1) / 100;
+      height = parent.height * height | 0;
+      height += +(expr[1] || 0);
+      return height;
+    }
+
+    // This is for if the element is being streched or shrunken.
+    // Although the width for shrunken elements is calculated
+    // in the render function, it may be calculated based on
+    // the content width, and the content width is initially
+    // decided by the width the element, so it needs to be
+    // calculated here.
+    if (height == null) {
+      top = this.position.top || 0;
+      if (typeof top === 'string') {
+        if (top === 'center') {
+          top = '50%';
+        }
+        expr = top.split(/(?=\+|-)/);
+        top = expr[0];
+        top = +top.slice(0, -1) / 100;
+        top = parent.height * top | 0;
+        top += +(expr[1] || 0);
+      }
+      height = parent.height - (this.position.bottom || 0) - top;
+      if (this.screen.autoPadding) {
+        if ((this.position.top != null
+            || this.position.bottom == null)
+            && this.position.top !== 'center') {
+          height -= this.parent.itop;
+        }
+        height -= this.parent.ibottom;
+      }
+    }
+
+    return height;
+  }
+
+  get height() {
+    return this._getHeight(false);
+  }
+
+  _getLeft(get: boolean) {
+    const parent = get ? this.parent._getPos() : this.parent;
+    let left = this.position.left || 0;
+    let expr;
+
     if (typeof left === 'string') {
-      if (left === 'center') left = '50%';
+      if (left === 'center') {
+        left = '50%';
+      }
       expr = left.split(/(?=\+|-)/);
       left = expr[0];
       left = +left.slice(0, -1) / 100;
       left = parent.width * left | 0;
       left += +(expr[1] || 0);
-    }
-    width = parent.width - (this.position.right || 0) - left;
-    if (this.screen.autoPadding) {
-      if ((this.position.left != null || this.position.right == null)
-          && this.position.left !== 'center') {
-        width -= this.parent.ileft;
+      if (this.position.left === 'center') {
+        left -= this._getWidth(get) / 2 | 0;
       }
-      width -= this.parent.iright;
     }
+
+    if (this.position.left == null && this.position.right != null) {
+      return this.screen.cols - this._getWidth(get) - this._getRight(get);
+    }
+
+    if (this.screen.autoPadding) {
+      if ((this.position.left != null
+          || this.position.right == null)
+          && this.position.left !== 'center') {
+        left += this.parent.ileft;
+      }
+    }
+
+    return (parent.aleft || 0) + left;
   }
 
-  return width;
-};
-
-Element.prototype.__defineGetter__('width', function() {
-  return this._getWidth(false);
-});
-
-Element.prototype._getHeight = function(get) {
-  var parent = get ? this.parent._getPos() : this.parent
-    , height = this.position.height
-    , top
-    , expr;
-
-  if (typeof height === 'string') {
-    if (height === 'half') height = '50%';
-    expr = height.split(/(?=\+|-)/);
-    height = expr[0];
-    height = +height.slice(0, -1) / 100;
-    height = parent.height * height | 0;
-    height += +(expr[1] || 0);
-    return height;
+  get aleft() {
+    return this._getLeft(false);
   }
 
-  // This is for if the element is being streched or shrunken.
-  // Although the width for shrunken elements is calculated
-  // in the render function, it may be calculated based on
-  // the content width, and the content width is initially
-  // decided by the width the element, so it needs to be
-  // calculated here.
-  if (height == null) {
-    top = this.position.top || 0;
+  _getRight(get) {
+    const parent = get ? this.parent._getPos() : this.parent;
+    let right;
+
+    if (this.position.right == null && this.position.left != null) {
+      right = this.screen.cols - (this._getLeft(get) + this._getWidth(get));
+      if (this.screen.autoPadding) {
+        right += this.parent.iright;
+      }
+      return right;
+    }
+
+    right = (parent.aright || 0) + (this.position.right || 0);
+
+    if (this.screen.autoPadding) {
+      right += this.parent.iright;
+    }
+
+    return right;
+  }
+
+  get aright() {
+    return this._getRight(false);
+  }
+
+  _getTop(get) {
+    const parent = get ? this.parent._getPos() : this.parent;
+    let top = this.position.top || 0;
+    let expr;
+
     if (typeof top === 'string') {
-      if (top === 'center') top = '50%';
+      if (top === 'center') {
+        top = '50%';
+      }
       expr = top.split(/(?=\+|-)/);
       top = expr[0];
       top = +top.slice(0, -1) / 100;
       top = parent.height * top | 0;
       top += +(expr[1] || 0);
+      if (this.position.top === 'center') {
+        top -= this._getHeight(get) / 2 | 0;
+      }
     }
-    height = parent.height - (this.position.bottom || 0) - top;
+
+    if (this.position.top == null && this.position.bottom != null) {
+      return this.screen.rows - this._getHeight(get) - this._getBottom(get);
+    }
+
     if (this.screen.autoPadding) {
       if ((this.position.top != null
           || this.position.bottom == null)
           && this.position.top !== 'center') {
-        height -= this.parent.itop;
+        top += this.parent.itop;
       }
-      height -= this.parent.ibottom;
     }
+
+    return (parent.atop || 0) + top;
   }
 
-  return height;
-};
+  get atop() {
+    return this._getTop(false);
+  }
 
-Element.prototype.__defineGetter__('height', function() {
-  return this._getHeight(false);
-});
+  _getBottom(get: boolean) {
+    const parent = get ? this.parent._getPos() : this.parent;
+    let bottom;
 
-Element.prototype._getLeft = function(get) {
-  var parent = get ? this.parent._getPos() : this.parent
-    , left = this.position.left || 0
-    , expr;
-
-  if (typeof left === 'string') {
-    if (left === 'center') left = '50%';
-    expr = left.split(/(?=\+|-)/);
-    left = expr[0];
-    left = +left.slice(0, -1) / 100;
-    left = parent.width * left | 0;
-    left += +(expr[1] || 0);
-    if (this.position.left === 'center') {
-      left -= this._getWidth(get) / 2 | 0;
+    if (this.position.bottom == null && this.position.top != null) {
+      bottom = this.screen.rows - (this._getTop(get) + this._getHeight(get));
+      if (this.screen.autoPadding) {
+        bottom += this.parent.ibottom;
+      }
+      return bottom;
     }
-  }
 
-  if (this.position.left == null && this.position.right != null) {
-    return this.screen.cols - this._getWidth(get) - this._getRight(get);
-  }
+    bottom = (parent.abottom || 0) + (this.position.bottom || 0);
 
-  if (this.screen.autoPadding) {
-    if ((this.position.left != null
-        || this.position.right == null)
-        && this.position.left !== 'center') {
-      left += this.parent.ileft;
-    }
-  }
-
-  return (parent.aleft || 0) + left;
-};
-
-Element.prototype.__defineGetter__('aleft', function() {
-  return this._getLeft(false);
-});
-
-Element.prototype._getRight = function(get) {
-  var parent = get ? this.parent._getPos() : this.parent
-    , right;
-
-  if (this.position.right == null && this.position.left != null) {
-    right = this.screen.cols - (this._getLeft(get) + this._getWidth(get));
-    if (this.screen.autoPadding) {
-      right += this.parent.iright;
-    }
-    return right;
-  }
-
-  right = (parent.aright || 0) + (this.position.right || 0);
-
-  if (this.screen.autoPadding) {
-    right += this.parent.iright;
-  }
-
-  return right;
-};
-
-Element.prototype.__defineGetter__('aright', function() {
-  return this._getRight(false);
-});
-
-Element.prototype._getTop = function(get) {
-  var parent = get ? this.parent._getPos() : this.parent
-    , top = this.position.top || 0
-    , expr;
-
-  if (typeof top === 'string') {
-    if (top === 'center') top = '50%';
-    expr = top.split(/(?=\+|-)/);
-    top = expr[0];
-    top = +top.slice(0, -1) / 100;
-    top = parent.height * top | 0;
-    top += +(expr[1] || 0);
-    if (this.position.top === 'center') {
-      top -= this._getHeight(get) / 2 | 0;
-    }
-  }
-
-  if (this.position.top == null && this.position.bottom != null) {
-    return this.screen.rows - this._getHeight(get) - this._getBottom(get);
-  }
-
-  if (this.screen.autoPadding) {
-    if ((this.position.top != null
-        || this.position.bottom == null)
-        && this.position.top !== 'center') {
-      top += this.parent.itop;
-    }
-  }
-
-  return (parent.atop || 0) + top;
-};
-
-Element.prototype.__defineGetter__('atop', function() {
-  return this._getTop(false);
-});
-
-Element.prototype._getBottom = function(get) {
-  var parent = get ? this.parent._getPos() : this.parent
-    , bottom;
-
-  if (this.position.bottom == null && this.position.top != null) {
-    bottom = this.screen.rows - (this._getTop(get) + this._getHeight(get));
     if (this.screen.autoPadding) {
       bottom += this.parent.ibottom;
     }
+
     return bottom;
   }
 
-  bottom = (parent.abottom || 0) + (this.position.bottom || 0);
-
-  if (this.screen.autoPadding) {
-    bottom += this.parent.ibottom;
+  get abottom() {
+    return this._getBottom(false);
   }
 
-  return bottom;
-};
+  get rleft() {
+    return this.aleft - this.parent.aleft;
+  }
 
-Element.prototype.__defineGetter__('abottom', function() {
-  return this._getBottom(false);
-});
+  get rright() {
+    return this.aright - this.parent.aright;
+  }
 
-Element.prototype.__defineGetter__('rleft', function() {
-  return this.aleft - this.parent.aleft;
-});
+  get rtop() {
+    return this.atop - this.parent.atop;
+  }
 
-Element.prototype.__defineGetter__('rright', function() {
-  return this.aright - this.parent.aright;
-});
-
-Element.prototype.__defineGetter__('rtop', function() {
-  return this.atop - this.parent.atop;
-});
-
-Element.prototype.__defineGetter__('rbottom', function() {
-  return this.abottom - this.parent.abottom;
-});
+  get rbottom() {
+    return this.abottom - this.parent.abottom;
+  }
 
 /**
  * Position Setters
@@ -1435,41 +1418,41 @@ Element.prototype.__defineGetter__('tpadding', function() {
     + this.padding.right + this.padding.bottom;
 });
 
-/**
- * Relative coordinates as default properties
- */
+  /**
+   * Relative coordinates as default properties
+   */
 
-Element.prototype.__defineGetter__('left', function() {
-  return this.rleft;
-});
+  get left() {
+    return this.rleft;
+  }
 
-Element.prototype.__defineGetter__('right', function() {
-  return this.rright;
-});
+  get right() {
+    return this.rright;
+  }
 
-Element.prototype.__defineGetter__('top', function() {
-  return this.rtop;
-});
+  get top() {
+    return this.rtop;
+  }
 
-Element.prototype.__defineGetter__('bottom', function() {
-  return this.rbottom;
-});
+  get bottom() {
+    return this.rbottom;
+  }
 
-Element.prototype.__defineSetter__('left', function(val) {
-  return this.rleft = val;
-});
+  set left(val) {
+    this.rleft = val;
+  }
 
-Element.prototype.__defineSetter__('right', function(val) {
-  return this.rright = val;
-});
+  set right(val) {
+    this.rright = val;
+  }
 
-Element.prototype.__defineSetter__('top', function(val) {
-  return this.rtop = val;
-});
+  set top(val) {
+    this.rtop = val;
+  }
 
-Element.prototype.__defineSetter__('bottom', function(val) {
-  return this.rbottom = val;
-});
+  set bottom(val) {
+    this.rbottom = val;
+  }
 
 /**
  * Rendering - here be dragons
@@ -2517,54 +2500,49 @@ Element.prototype.unshiftLine = function(line) {
   return this.insertLine(0, line);
 };
 
-Element.prototype.shiftLine = function(n) {
-  return this.deleteLine(0, n);
-};
-
-Element.prototype.pushLine = function(line) {
-  if (!this.content) return this.setLine(0, line);
-  return this.insertLine(this._clines.fake.length, line);
-};
-
-Element.prototype.popLine = function(n) {
-  return this.deleteLine(this._clines.fake.length - 1, n);
-};
-
-Element.prototype.getLines = function() {
-  return this._clines.fake.slice();
-};
-
-Element.prototype.getScreenLines = function() {
-  return this._clines.slice();
-};
-
-Element.prototype.strWidth = function(text) {
-  text = this.parseTags
-    ? helpers.stripTags(text)
-    : text;
-  return this.screen.fullUnicode
-    ? unicode.strWidth(text)
-    : helpers.dropUnicode(text).length;
-};
-
-Element.prototype.screenshot = function(xi, xl, yi, yl) {
-  xi = this.lpos.xi + this.ileft + (xi || 0);
-  if (xl != null) {
-    xl = this.lpos.xi + this.ileft + (xl || 0);
-  } else {
-    xl = this.lpos.xl - this.iright;
+  shiftLine(n) {
+    return this.deleteLine(0, n);
   }
-  yi = this.lpos.yi + this.itop + (yi || 0);
-  if (yl != null) {
-    yl = this.lpos.yi + this.itop + (yl || 0);
-  } else {
-    yl = this.lpos.yl - this.ibottom;
+
+  pushLine(line) {
+    if (!this.content) return this.setLine(0, line);
+    return this.insertLine(this._clines.fake.length, line);
   }
-  return this.screen.screenshot(xi, xl, yi, yl);
-};
 
-/**
- * Expose
- */
+  popLine(n) {
+    return this.deleteLine(this._clines.fake.length - 1, n);
+  }
 
-module.exports = Element;
+  getLines() {
+    return this._clines.fake.slice();
+  }
+
+  getScreenLines() {
+    return this._clines.slice();
+  }
+
+  strWidth(text) {
+    text = this.parseTags
+      ? helpers.stripTags(text)
+      : text;
+    return this.screen.fullUnicode
+      ? unicode.strWidth(text)
+      : helpers.dropUnicode(text).length;
+  }
+
+  screenshot(xi, xl, yi, yl) {
+    xi = this.lpos.xi + this.ileft + (xi || 0);
+    if (xl != null) {
+      xl = this.lpos.xi + this.ileft + (xl || 0);
+    } else {
+      xl = this.lpos.xl - this.iright;
+    }
+    yi = this.lpos.yi + this.itop + (yi || 0);
+    if (yl != null) {
+      yl = this.lpos.yi + this.itop + (yl || 0);
+    } else {
+      yl = this.lpos.yl - this.ibottom;
+    }
+    return this.screen.screenshot(xi, xl, yi, yl);
+  }
+}

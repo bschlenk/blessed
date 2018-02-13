@@ -4,75 +4,83 @@
  * https://github.com/chjj/blessed
  */
 
-/**
- * Modules
- */
+import * as path from 'path';
+import * as fs from 'fs';
+import * as cp from 'child_process';
 
-var path = require('path')
-  , fs = require('fs')
-  , cp = require('child_process');
+import * as colors '../colors';
+import program from '../program';
+import * as unicode from '../unicode';
 
-var colors = require('../colors')
-  , program = require('../program')
-  , unicode = require('../unicode');
+import * as helpers from '../helpers';
 
-var nextTick = global.setImmediate || process.nextTick.bind(process);
+import Node from './node';
+import Log from './log';
+import Element from './element';
+import Box from './box';
 
-var helpers = require('../helpers');
+const nextTick = global.setImmediate || process.nextTick.bind(process);
 
-var Node = require('./node');
-var Log = require('./log');
-var Element = require('./element');
-var Box = require('./box');
+interface ScreenOptions {
+    rsety?: any;
+    listen?: any;
+    program?: any;
+    input?: any;
+    output?: any;
+    log?: any;
+    debug?: any;
+    dump?: any;
+    terminal?: any;
+    term?: any;
+    resizeTimeout?: any;
+    forceUnicode?: any;
+    autoPadding?: boolean;
+};
 
-/**
- * Screen
- */
+export default class Screen extends Node {
+  static global = null;
+  static total = 0;
+  static instances = [];
 
-function Screen(options) {
-  var self = this;
+  constructor(options: ScreenOptions = {}) {
 
-  if (!(this instanceof Node)) {
-    return new Screen(options);
-  }
+    // ???
+    // Screen.bind(this);
 
-  Screen.bind(this);
-
-  options = options || {};
-  if (options.rsety && options.listen) {
-    options = { program: options };
-  }
-
-  this.program = options.program;
-
-  if (!this.program) {
-    this.program = program({
-      input: options.input,
-      output: options.output,
-      log: options.log,
-      debug: options.debug,
-      dump: options.dump,
-      terminal: options.terminal || options.term,
-      resizeTimeout: options.resizeTimeout,
-      forceUnicode: options.forceUnicode,
-      tput: true,
-      buffer: true,
-      zero: true
-    });
-  } else {
-    this.program.setupTput();
-    this.program.useBuffer = true;
-    this.program.zero = true;
-    this.program.options.resizeTimeout = options.resizeTimeout;
-    if (options.forceUnicode != null) {
-      this.program.tput.features.unicode = options.forceUnicode;
-      this.program.tput.unicode = options.forceUnicode;
+    if (options.rsety && options.listen) {
+      options = { program: options };
     }
-  }
+
+    this.program = options.program;
+
+    if (!this.program) {
+      this.program = program({
+        input: options.input,
+        output: options.output,
+        log: options.log,
+        debug: options.debug,
+        dump: options.dump,
+        terminal: options.terminal || options.term,
+        resizeTimeout: options.resizeTimeout,
+        forceUnicode: options.forceUnicode,
+        tput: true,
+        buffer: true,
+        zero: true
+      });
+    } else {
+      this.program.setupTput();
+      this.program.useBuffer = true;
+      this.program.zero = true;
+      this.program.options.resizeTimeout = options.resizeTimeout;
+      if (options.forceUnicode != null) {
+        this.program.tput.features.unicode = options.forceUnicode;
+        this.program.tput.unicode = options.forceUnicode;
+      }
+    }
 
   this.tput = this.program.tput;
 
-  Node.call(this, options);
+  super(options);
 
   this.autoPadding = options.autoPadding !== false;
   this.tabc = Array((options.tabSize || 4) + 1).join(' ');
@@ -188,12 +196,6 @@ function Screen(options) {
   this.postEnter();
 }
 
-Screen.global = null;
-
-Screen.total = 0;
-
-Screen.instances = [];
-
 Screen.bind = function(screen) {
   if (!Screen.global) {
     Screen.global = screen;
@@ -222,20 +224,20 @@ Screen.bind = function(screen) {
     });
   });
 
-  ['SIGTERM', 'SIGINT', 'SIGQUIT'].forEach(function(signal) {
-    var name = '_' + signal.toLowerCase() + 'Handler';
-    process.on(signal, Screen[name] = function() {
+  ['SIGTERM', 'SIGINT', 'SIGQUIT'].forEach((signal) => {
+    const name = '_' + signal.toLowerCase() + 'Handler';
+    process.on(signal, Screen[name] = () => {
       if (process.listeners(signal).length > 1) {
         return;
       }
-      nextTick(function() {
+      nextTick(() => {
         process.exit(0);
       });
     });
   });
 
-  process.on('exit', Screen._exitHandler = function() {
-    Screen.instances.slice().forEach(function(screen) {
+  process.on('exit', Screen._exitHandler = () => {
+    Screen.instances.slice().forEach((screen) => {
       screen.destroy();
     });
   });

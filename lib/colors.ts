@@ -4,22 +4,25 @@
  * https://github.com/chjj/blessed
  */
 
-exports.match = function(r1, g1, b1) {
+export type RGBArray = [number, number, number];
+
+const cache = {};
+
+export function match(r1: string | RGBArray, g1?: string, b1?: string) {
   if (typeof r1 === 'string') {
-    var hex = r1;
-    if (hex[0] !== '#') {
+    if (r1[0] !== '#') {
       return -1;
     }
-    hex = exports.hexToRGB(hex);
-    r1 = hex[0], g1 = hex[1], b1 = hex[2];
+    const hex = exports.hexToRGB(r1);
+    ([r1, g1, b1] = hex);
   } else if (Array.isArray(r1)) {
-    b1 = r1[2], g1 = r1[1], r1 = r1[0];
+    ([r1, g1, b1] = r1);
   }
 
   var hash = (r1 << 16) | (g1 << 8) | b1;
 
-  if (exports._cache[hash] != null) {
-    return exports._cache[hash];
+  if (cache[hash] != null) {
+    return cache[hash];
   }
 
   var ldiff = Infinity
@@ -50,24 +53,26 @@ exports.match = function(r1, g1, b1) {
     }
   }
 
-  return exports._cache[hash] = li;
+  return cache[hash] = li;
 };
 
-exports.RGBToHex = function(r, g, b) {
+export function RGBToHex(r: RGBArray | number, g?: number, b?: number): string {
   if (Array.isArray(r)) {
-    b = r[2], g = r[1], r = r[0];
+    ([r, g, b] = r);
   }
 
-  function hex(n) {
-    n = n.toString(16);
-    if (n.length < 2) n = '0' + n;
-    return n;
+  const hex = (n: number) => {
+    const str = n.toString(16);
+    if (str.length < 2) {
+      return '0' + str;
+    }
+    return str;
   }
 
   return '#' + hex(r) + hex(g) + hex(b);
 };
 
-exports.hexToRGB = function(hex) {
+export function hexToRGB(hex: string): RGBArray {
   if (hex.length === 4) {
     hex = hex[0]
       + hex[1] + hex[1]
@@ -75,10 +80,10 @@ exports.hexToRGB = function(hex) {
       + hex[3] + hex[3];
   }
 
-  var col = parseInt(hex.substring(1), 16)
-    , r = (col >> 16) & 0xff
-    , g = (col >> 8) & 0xff
-    , b = col & 0xff;
+  const col = parseInt(hex.substring(1), 16);
+  const r = (col >> 16) & 0xff;
+  const g = (col >> 8) & 0xff;
+  const b = col & 0xff;
 
   return [r, g, b];
 };
@@ -89,39 +94,43 @@ exports.hexToRGB = function(hex) {
 // propose a superior solution.
 // [1] http://stackoverflow.com/questions/1633828
 
-function colorDistance(r1, g1, b1, r2, g2, b2) {
+function colorDistance(
+  r1: number, g1: number, b1: number,
+  r2: number, g2: number, b2: number,
+): number {
   return Math.pow(30 * (r1 - r2), 2)
     + Math.pow(59 * (g1 - g2), 2)
     + Math.pow(11 * (b1 - b2), 2);
 }
 
-// This might work well enough for a terminal's colors: treat RGB as XYZ in a
-// 3-dimensional space and go midway between the two points.
-exports.mixColors = function(c1, c2, alpha) {
-  // if (c1 === 0x1ff) return c1;
-  // if (c2 === 0x1ff) return c1;
-  if (c1 === 0x1ff) c1 = 0;
-  if (c2 === 0x1ff) c2 = 0;
-  if (alpha == null) alpha = 0.5;
+/**
+ * This might work well enough for a terminal's colors: treat RGB as XYZ in a
+ * 3-dimensional space and go midway between the two points.
+ */
+export function mixColors(c1: number, c2: number, alpha: number = 0.5) {
+  if (c1 === 0x1ff) {
+    c1 = 0;
+  }
+  if (c2 === 0x1ff) {
+    c2 = 0;
+  }
 
   c1 = exports.vcolors[c1];
-  var r1 = c1[0];
-  var g1 = c1[1];
-  var b1 = c1[2];
+  let [r1, g1, b1] = c1;
 
   c2 = exports.vcolors[c2];
-  var r2 = c2[0];
-  var g2 = c2[1];
-  var b2 = c2[2];
+  let [r2, g2, b2] = c2;
 
-  r1 += (r2 - r1) * alpha | 0;
-  g1 += (g2 - g1) * alpha | 0;
-  b1 += (b2 - b1) * alpha | 0;
+  const mixed = [
+    r1 += (r2 - r1) * alpha | 0,
+    g1 += (g2 - g1) * alpha | 0,
+    b1 += (b2 - b1) * alpha | 0,
+  ];
 
-  return exports.match([r1, g1, b1]);
+  return exports.match(mixed);
 };
 
-exports.blend = function blend(attr, attr2, alpha) {
+export function blend(attr, attr2, alpha) {
   var name, i, c, nc;
 
   var bg = attr & 0x1ff;
@@ -205,9 +214,9 @@ exports.blend._cache = {};
 
 exports._cache = {};
 
-exports.reduce = function(color, total) {
+export function reduce(color: number, total: number) {
   if (color >= 16 && total <= 16) {
-    color = exports.ccolors[color];
+    color = ccolors[color];
   } else if (color >= 8 && total <= 8) {
     color -= 8;
   } else if (color >= 2 && total <= 2) {
@@ -220,7 +229,7 @@ exports.reduce = function(color, total) {
 // These were actually tough to track down. The xterm source only uses color
 // keywords. The X11 source needed to be examined to find the actual values.
 // They then had to be mapped to rgb values and then converted to hex values.
-exports.xterm = [
+export const xterm = [
   '#000000', // black
   '#cd0000', // red3
   '#00cd00', // green3
@@ -292,15 +301,15 @@ exports.colors = (function() {
 
 // Map higher colors to the first 8 colors.
 // This allows translation of high colors to low colors on 8-color terminals.
-exports.ccolors = (function() {
-  var _cols = exports.vcolors.slice()
-    , cols = exports.colors.slice()
-    , out;
+export const ccolors = (() => {
+  const _cols = vcolors.slice();
+  const cols = colors.slice();
 
-  exports.vcolors = exports.vcolors.slice(0, 8);
-  exports.colors = exports.colors.slice(0, 8);
+  // TODO: the hell is this doing?
+  exports.vcolors = vcolors.slice(0, 8);
+  exports.colors = colors.slice(0, 8);
 
-  out = cols.map(exports.match);
+  const out = cols.map(match);
 
   exports.colors = cols;
   exports.vcolors = _cols;
@@ -309,7 +318,7 @@ exports.ccolors = (function() {
   return out;
 })();
 
-var colorNames = exports.colorNames = {
+export const colorNames = {
   // special
   default: -1,
   normal: -1,
@@ -351,18 +360,18 @@ var colorNames = exports.colorNames = {
   brightgray: 7
 };
 
-exports.convert = function(color) {
+export function convert(color: number | string | RGBArray) {
   if (typeof color === 'number') {
-    ;
+    // do nothing
   } else if (typeof color === 'string') {
     color = color.replace(/[\- ]/g, '');
     if (colorNames[color] != null) {
       color = colorNames[color];
     } else {
-      color = exports.match(color);
+      color = match(color);
     }
   } else if (Array.isArray(color)) {
-    color = exports.match(color);
+    color = match(color);
   } else {
     color = -1;
   }
@@ -372,7 +381,7 @@ exports.convert = function(color) {
 // Map higher colors to the first 8 colors.
 // This allows translation of high colors to low colors on 8-color terminals.
 // Why the hell did I do this by hand?
-exports.ccolors = {
+export const ccolors = {
   blue: [
     4,
     12,
@@ -512,19 +521,19 @@ exports.ccolors = {
   ]
 };
 
-exports.ncolors = [];
+export const ncolors = [];
 
-Object.keys(exports.ccolors).forEach(function(name) {
-  exports.ccolors[name].forEach(function(offset) {
+Object.keys(ccolors).forEach((name) => {
+  ccolors[name].forEach((offset) => {
     if (typeof offset === 'number') {
-      exports.ncolors[offset] = name;
-      exports.ccolors[offset] = exports.colorNames[name];
+      ncolors[offset] = name;
+      ccolors[offset] = colorNames[name];
       return;
     }
     for (var i = offset[0], l = offset[1]; i <= l; i++) {
-      exports.ncolors[i] = name;
-      exports.ccolors[i] = exports.colorNames[name];
+      ncolors[i] = name;
+      ccolors[i] = colorNames[name];
     }
   });
-  delete exports.ccolors[name];
+  delete ccolors[name];
 });

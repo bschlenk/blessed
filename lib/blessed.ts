@@ -4,11 +4,7 @@
  * https://github.com/chjj/blessed
  */
 
-/**
- * Blessed
- */
-
-function blessed() {
+export default function blessed() {
   return blessed.program.apply(null, arguments);
 }
 
@@ -21,12 +17,5 @@ blessed.helpers = require('./helpers');
 
 blessed.helpers.sprintf = blessed.tput.sprintf;
 blessed.helpers.tryRead = blessed.tput.tryRead;
-blessed.helpers.merge(blessed, blessed.helpers);
-
-blessed.helpers.merge(blessed, blessed.widget);
-
-/**
- * Expose
- */
-
-module.exports = blessed;
+Object.assign(blessed, blessed.helpers);
+Object.assign(blessed, blessed.widget);

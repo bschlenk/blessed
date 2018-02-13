@@ -103,28 +103,29 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-var stringFromCharCode = String.fromCharCode;
-var floor = Math.floor;
+import * as blessed from './blessed';
+
+const stringFromCharCode = String.fromCharCode;
+const floor = Math.floor;
 
 /**
  * Wide, Surrogates, and Combining
  */
 
-exports.charWidth = function(str, i) {
-  var point = typeof str !== 'number'
+export function charWidth(str: string, i: number): number {
+  const point = typeof str !== 'number'
     ? exports.codePointAt(str, i || 0)
     : str;
 
   // nul
-  if (point === 0) return 0;
+  if (point === 0) {
+    return 0;
+  }
 
   // tab
   if (point === 0x09) {
-    if (!exports.blessed) {
-      exports.blessed = require('../');
-    }
-    return exports.blessed.screen.global
-      ? exports.blessed.screen.global.tabc.length
+    return blessed.screen.global
+      ? blessed.screen.global.tabc.length
       : 8;
   }
 
@@ -135,7 +136,7 @@ exports.charWidth = function(str, i) {
 
   // search table of non-spacing characters
   // is ucs combining or C0/C1 control character
-  if (exports.combining[point]) {
+  if (combining[point]) {
     return 0;
   }
 
@@ -386,25 +387,27 @@ exports.charWidth = function(str, i) {
   }
 
   return 1;
-};
+}
 
-exports.strWidth = function(str) {
-  var width = 0;
-  for (var i = 0; i < str.length; i++) {
-    width += exports.charWidth(str, i);
-    if (exports.isSurrogate(str, i)) i++;
+export function strWidth(str: string): number {
+  let width = 0;
+  for (let i = 0; i < str.length; i++) {
+    width += charWidth(str, i);
+    if (isSurrogate(str, i)) {
+      i++;
+    }
   }
   return width;
-};
+}
 
-exports.isSurrogate = function(str, i) {
-  var point = typeof str !== 'number'
-    ? exports.codePointAt(str, i || 0)
+export function isSurrogate(str: string | number, i: number): boolean {
+  const point = typeof str !== 'number'
+    ? codePointAt(str, i || 0)
     : str;
   return point > 0x00ffff;
 };
 
-exports.combiningTable = [
+export const combiningTable: number[][] = [
   [0x0300, 0x036F],   [0x0483, 0x0486],   [0x0488, 0x0489],
   [0x0591, 0x05BD],   [0x05BF, 0x05BF],   [0x05C1, 0x05C2],
   [0x05C4, 0x05C5],   [0x05C7, 0x05C7],   [0x0600, 0x0603],
@@ -455,35 +458,39 @@ exports.combiningTable = [
   [0xE0100, 0xE01EF]
 ];
 
-exports.combining = exports.combiningTable.reduce(function(out, row) {
-  for (var i = row[0]; i <= row[1]; i++) {
-    out[i] = true;
-  }
-  return out;
-}, {});
+export type Combining = { [key: number]: boolean };
 
-exports.isCombining = function(str, i) {
-  var point = typeof str !== 'number'
+export const combining: Combining = combiningTable.reduce(
+  (out: Combining, row: number[]) => {
+    for (let i = row[0]; i <= row[1]; i++) {
+      out[i] = true;
+    }
+    return out;
+  }, {});
+
+export function isCombining(str: string | number, i: number): boolean {
+  const point = typeof str !== 'number'
     ? exports.codePointAt(str, i || 0)
     : str;
-  return exports.combining[point] === true;
+  return !!combining[point];
 };
 
 /**
  * Code Point Helpers
  */
 
-exports.codePointAt = function(str, position) {
+// TODO: can I get rid of this function? does it exist in node >= 6?
+export function codePointAt(str: string, position: number): number {
   if (str == null) {
-    throw TypeError();
+    throw new TypeError();
   }
-  var string = String(str);
+  const string = '' + str;
   if (string.codePointAt) {
     return string.codePointAt(position);
   }
-  var size = string.length;
+  const size = string.length;
   // `ToInteger`
-  var index = position ? Number(position) : 0;
+  let index = position ? Number(position) : 0;
   if (index !== index) { // better `isNaN`
     index = 0;
   }
@@ -492,8 +499,8 @@ exports.codePointAt = function(str, position) {
     return undefined;
   }
   // Get the first code unit
-  var first = string.charCodeAt(index);
-  var second;
+  const first = string.charCodeAt(index);
+  let second;
   if ( // check if it’s the start of a surrogate pair
     first >= 0xD800 && first <= 0xDBFF && // high surrogate
     size > index + 1 // there is a next code unit
@@ -505,27 +512,14 @@ exports.codePointAt = function(str, position) {
     }
   }
   return first;
-};
+}
 
-// exports.codePointAt = function(str, position) {
-//   position = +position || 0;
-//   var x = str.charCodeAt(position);
-//   var y = str.length > 1 ? str.charCodeAt(position + 1) : 0;
-//   var point = x;
-//   if ((0xD800 <= x && x <= 0xDBFF) && (0xDC00 <= y && y <= 0xDFFF)) {
-//     x &= 0x3FF;
-//     y &= 0x3FF;
-//     point = (x << 10) | y;
-//     point += 0x10000;
-//   }
-//   return point;
-// };
-
-exports.fromCodePoint = function() {
+// TODO: can I get rid of this in Node >= 6?
+export function fromCodePoint(): string {
   if (String.fromCodePoint) {
     return String.fromCodePoint.apply(String, arguments);
   }
-  var MAX_SIZE = 0x4000;
+  const MAX_SIZE = 0x4000;
   var codeUnits = [];
   var highSurrogate;
   var lowSurrogate;
@@ -566,225 +560,77 @@ exports.fromCodePoint = function() {
  * Regexes
  */
 
-exports.chars = {};
+export const chars = {
 
-// Double width characters that are _not_ surrogate pairs.
-// NOTE: 0x20000 - 0x2fffd and 0x30000 - 0x3fffd are not necessary for this
-// regex anyway. This regex is used to put a blank char after wide chars to
-// be eaten, however, if this is a surrogate pair, parseContent already adds
-// the extra one char because its length equals 2 instead of 1.
-exports.chars.wide = new RegExp('(['
-  + '\\u1100-\\u115f' // Hangul Jamo init. consonants
-  + '\\u2329\\u232a'
-  + '\\u2e80-\\u303e\\u3040-\\ua4cf' // CJK ... Yi
-  + '\\uac00-\\ud7a3' // Hangul Syllables
-  + '\\uf900-\\ufaff' // CJK Compatibility Ideographs
-  + '\\ufe10-\\ufe19' // Vertical forms
-  + '\\ufe30-\\ufe6f' // CJK Compatibility Forms
-  + '\\uff00-\\uff60' // Fullwidth Forms
-  + '\\uffe0-\\uffe6'
-  + '])', 'g');
+  // Double width characters that are _not_ surrogate pairs.
+  // NOTE: 0x20000 - 0x2fffd and 0x30000 - 0x3fffd are not necessary for this
+  // regex anyway. This regex is used to put a blank char after wide chars to
+  // be eaten, however, if this is a surrogate pair, parseContent already adds
+  // the extra one char because its length equals 2 instead of 1.
+  wide: new RegExp('(['
+    + '\\u1100-\\u115f' // Hangul Jamo init. consonants
+    + '\\u2329\\u232a'
+    + '\\u2e80-\\u303e\\u3040-\\ua4cf' // CJK ... Yi
+    + '\\uac00-\\ud7a3' // Hangul Syllables
+    + '\\uf900-\\ufaff' // CJK Compatibility Ideographs
+    + '\\ufe10-\\ufe19' // Vertical forms
+    + '\\ufe30-\\ufe6f' // CJK Compatibility Forms
+    + '\\uff00-\\uff60' // Fullwidth Forms
+    + '\\uffe0-\\uffe6'
+    + '])', 'g'),
 
-// All surrogate pair wide chars.
-exports.chars.swide = new RegExp('('
-  // 0x20000 - 0x2fffd:
-  + '[\\ud840-\\ud87f][\\udc00-\\udffd]'
-  + '|'
-  // 0x30000 - 0x3fffd:
-  + '[\\ud880-\\ud8bf][\\udc00-\\udffd]'
-  + ')', 'g');
+  // All surrogate pair wide chars.
+  swide: new RegExp('('
+    // 0x20000 - 0x2fffd:
+    + '[\\ud840-\\ud87f][\\udc00-\\udffd]'
+    + '|'
+    // 0x30000 - 0x3fffd:
+    + '[\\ud880-\\ud8bf][\\udc00-\\udffd]'
+    + ')', 'g'),
 
-// All wide chars including surrogate pairs.
-exports.chars.all = new RegExp('('
-  + exports.chars.swide.source.slice(1, -1)
-  + '|'
-  + exports.chars.wide.source.slice(1, -1)
-  + ')', 'g');
+  // All wide chars including surrogate pairs.
+  all: new RegExp('('
+    + exports.chars.swide.source.slice(1, -1)
+    + '|'
+    + exports.chars.wide.source.slice(1, -1)
+    + ')', 'g'),
 
-// Regex to detect a surrogate pair.
-exports.chars.surrogate = /[\ud800-\udbff][\udc00-\udfff]/g;
+  // Regex to detect a surrogate pair.
+  surrogate: /[\ud800-\udbff][\udc00-\udfff]/g,
 
-// Regex to find combining characters.
-exports.chars.combining = exports.combiningTable.reduce(function(out, row) {
-  var low, high, range;
-  if (row[0] > 0x00ffff) {
-    low = exports.fromCodePoint(row[0]);
-    low = [
-      hexify(low.charCodeAt(0)),
-      hexify(low.charCodeAt(1))
-    ];
-    high = exports.fromCodePoint(row[1]);
-    high = [
-      hexify(high.charCodeAt(0)),
-      hexify(high.charCodeAt(1))
-    ];
-    range = '[\\u' + low[0] + '-' + '\\u' + high[0] + ']'
-          + '[\\u' + low[1] + '-' + '\\u' + high[1] + ']';
-    if (!~out.indexOf('|')) out += ']';
-    out += '|' + range;
-  } else {
-    low = hexify(row[0]);
-    high = hexify(row[1]);
-    low = '\\u' + low;
-    high = '\\u' + high;
-    out += low + '-' + high;
+  // Regex to find combining characters.
+  combining: new RegExp(combiningTable.reduce((out, row) => {
+    var low, high, range;
+    if (row[0] > 0x00ffff) {
+      low = exports.fromCodePoint(row[0]);
+      low = [
+        hexify(low.charCodeAt(0)),
+        hexify(low.charCodeAt(1))
+      ];
+      high = exports.fromCodePoint(row[1]);
+      high = [
+        hexify(high.charCodeAt(0)),
+        hexify(high.charCodeAt(1))
+      ];
+      range = '[\\u' + low[0] + '-' + '\\u' + high[0] + ']'
+            + '[\\u' + low[1] + '-' + '\\u' + high[1] + ']';
+      if (!~out.indexOf('|')) out += ']';
+      out += '|' + range;
+    } else {
+      low = hexify(row[0]);
+      high = hexify(row[1]);
+      low = '\\u' + low;
+      high = '\\u' + high;
+      out += low + '-' + high;
+    }
+    return out;
+  }, '['), 'g'),
+};
+
+function hexify(n: number): string {
+  let str = n.toString(16);
+  while (str.length < 4) {
+    str = '0' + str;
   }
-  return out;
-}, '[');
-
-exports.chars.combining = new RegExp(exports.chars.combining, 'g');
-
-function hexify(n) {
-  n = n.toString(16);
-  while (n.length < 4) n = '0' + n;
-  return n;
+  return str;
 }
-
-/*
-exports.chars.combining = new RegExp(
-  '['
-  + '\\u0300-\\u036f'
-  + '\\u0483-\\u0486'
-  + '\\u0488-\\u0489'
-  + '\\u0591-\\u05bd'
-  + '\\u05bf-\\u05bf'
-  + '\\u05c1-\\u05c2'
-  + '\\u05c4-\\u05c5'
-  + '\\u05c7-\\u05c7'
-  + '\\u0600-\\u0603'
-  + '\\u0610-\\u0615'
-  + '\\u064b-\\u065e'
-  + '\\u0670-\\u0670'
-  + '\\u06d6-\\u06e4'
-  + '\\u06e7-\\u06e8'
-  + '\\u06ea-\\u06ed'
-  + '\\u070f-\\u070f'
-  + '\\u0711-\\u0711'
-  + '\\u0730-\\u074a'
-  + '\\u07a6-\\u07b0'
-  + '\\u07eb-\\u07f3'
-  + '\\u0901-\\u0902'
-  + '\\u093c-\\u093c'
-  + '\\u0941-\\u0948'
-  + '\\u094d-\\u094d'
-  + '\\u0951-\\u0954'
-  + '\\u0962-\\u0963'
-  + '\\u0981-\\u0981'
-  + '\\u09bc-\\u09bc'
-  + '\\u09c1-\\u09c4'
-  + '\\u09cd-\\u09cd'
-  + '\\u09e2-\\u09e3'
-  + '\\u0a01-\\u0a02'
-  + '\\u0a3c-\\u0a3c'
-  + '\\u0a41-\\u0a42'
-  + '\\u0a47-\\u0a48'
-  + '\\u0a4b-\\u0a4d'
-  + '\\u0a70-\\u0a71'
-  + '\\u0a81-\\u0a82'
-  + '\\u0abc-\\u0abc'
-  + '\\u0ac1-\\u0ac5'
-  + '\\u0ac7-\\u0ac8'
-  + '\\u0acd-\\u0acd'
-  + '\\u0ae2-\\u0ae3'
-  + '\\u0b01-\\u0b01'
-  + '\\u0b3c-\\u0b3c'
-  + '\\u0b3f-\\u0b3f'
-  + '\\u0b41-\\u0b43'
-  + '\\u0b4d-\\u0b4d'
-  + '\\u0b56-\\u0b56'
-  + '\\u0b82-\\u0b82'
-  + '\\u0bc0-\\u0bc0'
-  + '\\u0bcd-\\u0bcd'
-  + '\\u0c3e-\\u0c40'
-  + '\\u0c46-\\u0c48'
-  + '\\u0c4a-\\u0c4d'
-  + '\\u0c55-\\u0c56'
-  + '\\u0cbc-\\u0cbc'
-  + '\\u0cbf-\\u0cbf'
-  + '\\u0cc6-\\u0cc6'
-  + '\\u0ccc-\\u0ccd'
-  + '\\u0ce2-\\u0ce3'
-  + '\\u0d41-\\u0d43'
-  + '\\u0d4d-\\u0d4d'
-  + '\\u0dca-\\u0dca'
-  + '\\u0dd2-\\u0dd4'
-  + '\\u0dd6-\\u0dd6'
-  + '\\u0e31-\\u0e31'
-  + '\\u0e34-\\u0e3a'
-  + '\\u0e47-\\u0e4e'
-  + '\\u0eb1-\\u0eb1'
-  + '\\u0eb4-\\u0eb9'
-  + '\\u0ebb-\\u0ebc'
-  + '\\u0ec8-\\u0ecd'
-  + '\\u0f18-\\u0f19'
-  + '\\u0f35-\\u0f35'
-  + '\\u0f37-\\u0f37'
-  + '\\u0f39-\\u0f39'
-  + '\\u0f71-\\u0f7e'
-  + '\\u0f80-\\u0f84'
-  + '\\u0f86-\\u0f87'
-  + '\\u0f90-\\u0f97'
-  + '\\u0f99-\\u0fbc'
-  + '\\u0fc6-\\u0fc6'
-  + '\\u102d-\\u1030'
-  + '\\u1032-\\u1032'
-  + '\\u1036-\\u1037'
-  + '\\u1039-\\u1039'
-  + '\\u1058-\\u1059'
-  + '\\u1160-\\u11ff'
-  + '\\u135f-\\u135f'
-  + '\\u1712-\\u1714'
-  + '\\u1732-\\u1734'
-  + '\\u1752-\\u1753'
-  + '\\u1772-\\u1773'
-  + '\\u17b4-\\u17b5'
-  + '\\u17b7-\\u17bd'
-  + '\\u17c6-\\u17c6'
-  + '\\u17c9-\\u17d3'
-  + '\\u17dd-\\u17dd'
-  + '\\u180b-\\u180d'
-  + '\\u18a9-\\u18a9'
-  + '\\u1920-\\u1922'
-  + '\\u1927-\\u1928'
-  + '\\u1932-\\u1932'
-  + '\\u1939-\\u193b'
-  + '\\u1a17-\\u1a18'
-  + '\\u1b00-\\u1b03'
-  + '\\u1b34-\\u1b34'
-  + '\\u1b36-\\u1b3a'
-  + '\\u1b3c-\\u1b3c'
-  + '\\u1b42-\\u1b42'
-  + '\\u1b6b-\\u1b73'
-  + '\\u1dc0-\\u1dca'
-  + '\\u1dfe-\\u1dff'
-  + '\\u200b-\\u200f'
-  + '\\u202a-\\u202e'
-  + '\\u2060-\\u2063'
-  + '\\u206a-\\u206f'
-  + '\\u20d0-\\u20ef'
-  + '\\u302a-\\u302f'
-  + '\\u3099-\\u309a'
-  + '\\ua806-\\ua806'
-  + '\\ua80b-\\ua80b'
-  + '\\ua825-\\ua826'
-  + '\\ufb1e-\\ufb1e'
-  + '\\ufe00-\\ufe0f'
-  + '\\ufe20-\\ufe23'
-  + '\\ufeff-\\ufeff'
-  + '\\ufff9-\\ufffb'
-  + ']'
-  + '|[\\ud802-\\ud802][\\ude01-\\ude03]'
-  + '|[\\ud802-\\ud802][\\ude05-\\ude06]'
-  + '|[\\ud802-\\ud802][\\ude0c-\\ude0f]'
-  + '|[\\ud802-\\ud802][\\ude38-\\ude3a]'
-  + '|[\\ud802-\\ud802][\\ude3f-\\ude3f]'
-  + '|[\\ud834-\\ud834][\\udd67-\\udd69]'
-  + '|[\\ud834-\\ud834][\\udd73-\\udd82]'
-  + '|[\\ud834-\\ud834][\\udd85-\\udd8b]'
-  + '|[\\ud834-\\ud834][\\uddaa-\\uddad]'
-  + '|[\\ud834-\\ud834][\\ude42-\\ude44]'
-  + '|[\\udb40-\\udb40][\\udc01-\\udc01]'
-  + '|[\\udb40-\\udb40][\\udc20-\\udc7f]'
-  + '|[\\udb40-\\udb40][\\udd00-\\uddef]'
-, 'g');
-*/

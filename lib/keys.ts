@@ -25,28 +25,25 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
-var EventEmitter = require('events').EventEmitter;
-
-// NOTE: node <=v0.8.x has no EventEmitter.listenerCount
-function listenerCount(stream, event) {
-  return EventEmitter.listenerCount
-    ? EventEmitter.listenerCount(stream, event)
-    : stream.listeners(event).length;
-}
+import { EventEmitter } from 'events';
+import { StringDecoder } from 'string_decoder';
+import { ReadStream } from 'fs'
 
 /**
- * accepts a readable Stream instance and makes it emit "keypress" events
+ * Accepts a readable Stream instance and makes it emit "keypress" events
  */
-
-function emitKeypressEvents(stream) {
-  if (stream._keypressDecoder) return;
-  var StringDecoder = require('string_decoder').StringDecoder; // lazy load
+export function emitKeypressEvents(stream: ReadStream) {
+  if (stream._keypressDecoder) {
+    return;
+  }
   stream._keypressDecoder = new StringDecoder('utf8');
 
-  function onData(b) {
-    if (listenerCount(stream, 'keypress') > 0) {
+  function onData(b: Buffer) {
+    if (EventEmitter.listenerCount(stream, 'keypress') > 0) {
       var r = stream._keypressDecoder.write(b);
-      if (r) emitKeys(stream, r);
+      if (r) {
+        emitKeys(stream, r);
+      }
     } else {
       // Nobody's watching anyway
       stream.removeListener('data', onData);
@@ -54,20 +51,19 @@ function emitKeypressEvents(stream) {
     }
   }
 
-  function onNewListener(event) {
+  function onNewListener(event: string) {
     if (event === 'keypress') {
       stream.on('data', onData);
       stream.removeListener('newListener', onNewListener);
     }
   }
 
-  if (listenerCount(stream, 'keypress') > 0) {
+  if (EventEmitter.listenerCount(stream, 'keypress') > 0) {
     stream.on('data', onData);
   } else {
     stream.on('newListener', onNewListener);
   }
 }
-exports.emitKeypressEvents = emitKeypressEvents;
 
 /*
   Some patterns seen in terminal key escape codes, derived from combos seen
@@ -98,19 +94,28 @@ exports.emitKeypressEvents = emitKeypressEvents;
 */
 
 // Regexes used for ansi escape code splitting
-var metaKeyCodeReAnywhere = /(?:\x1b)([a-zA-Z0-9])/;
-var metaKeyCodeRe = new RegExp('^' + metaKeyCodeReAnywhere.source + '$');
-var functionKeyCodeReAnywhere = new RegExp('(?:\x1b+)(O|N|\\[|\\[\\[)(?:' + [
+const metaKeyCodeReAnywhere = /(?:\x1b)([a-zA-Z0-9])/;
+const metaKeyCodeRe = new RegExp('^' + metaKeyCodeReAnywhere.source + '$');
+const functionKeyCodeReAnywhere = new RegExp('(?:\x1b+)(O|N|\\[|\\[\\[)(?:' + [
   '(\\d+)(?:;(\\d+))?([~^$])',
   '(?:M([@ #!a`])(.)(.))', // mouse
   '(?:1;)?(\\d+)?([a-zA-Z])'
 ].join('|') + ')');
-var functionKeyCodeRe = new RegExp('^' + functionKeyCodeReAnywhere.source);
-var escapeCodeReAnywhere = new RegExp([
+const functionKeyCodeRe = new RegExp('^' + functionKeyCodeReAnywhere.source);
+const escapeCodeReAnywhere = new RegExp([
   functionKeyCodeReAnywhere.source, metaKeyCodeReAnywhere.source, /\x1b./.source
 ].join('|'));
 
-function emitKeys(stream, s) {
+interface KeyEvent {
+  sequence: string;
+  name: string;
+  ctrl: boolean;
+  meta: boolean;
+  shift: boolean;
+  code?: string;
+}
+
+function emitKeys(stream: ReadStream, s: string | Buffer) {
   if (Buffer.isBuffer(s)) {
     if (s[0] > 127 && s[1] === undefined) {
       s[0] -= 128;
@@ -120,10 +125,12 @@ function emitKeys(stream, s) {
     }
   }
 
-  if (isMouse(s)) return;
+  if (isMouse(s)) {
+    return;
+  }
 
-  var buffer = [];
-  var match;
+  let buffer: string[] = [];
+  let match: RegExpExecArray;
   while (match = escapeCodeReAnywhere.exec(s)) {
     buffer = buffer.concat(s.slice(0, match.index).split(''));
     buffer.push(match[0]);
@@ -131,16 +138,16 @@ function emitKeys(stream, s) {
   }
   buffer = buffer.concat(s.split(''));
 
-  buffer.forEach(function(s) {
-    var ch,
-        key = {
-          sequence: s,
-          name: undefined,
-          ctrl: false,
-          meta: false,
-          shift: false
-        },
-        parts;
+  buffer.forEach((s) => {
+    let ch;
+    let key: KeyEvent = {
+      sequence: s,
+      name: undefined,
+      ctrl: false,
+      meta: false,
+      shift: false
+    };
+    let parts;
 
     if (s === '\r') {
       // carriage return
@@ -149,8 +156,6 @@ function emitKeys(stream, s) {
     } else if (s === '\n') {
       // enter, should have been called linefeed
       key.name = 'enter';
-      // linefeed
-      // key.name = 'linefeed';
 
     } else if (s === '\t') {
       // tab
@@ -196,9 +201,11 @@ function emitKeys(stream, s) {
 
       // reassemble the key code leaving out leading \x1b's,
       // the modifier key bitflag and any meaningless "1;" sequence
-      var code = (parts[1] || '') + (parts[2] || '') +
-                 (parts[4] || '') + (parts[9] || ''),
-          modifier = (parts[3] || parts[8] || 1) - 1;
+      const code = (parts[1] || '')
+          + (parts[2] || '')
+          + (parts[4] || '')
+          + (parts[9] || '');
+      const modifier = ((parts[3] || parts[8] || 1) as number) - 1;
 
       // Parse the key modifier
       key.ctrl = !!(modifier & 4);
@@ -316,19 +323,11 @@ function emitKeys(stream, s) {
 
     if (key || ch) {
       stream.emit('keypress', ch, key);
-      // if (key && key.name === 'return') {
-      //   var nkey = {};
-      //   Object.keys(key).forEach(function(k) {
-      //     nkey[k] = key[k];
-      //   });
-      //   nkey.name = 'enter';
-      //   stream.emit('keypress', ch, nkey);
-      // }
     }
   });
 }
 
-function isMouse(s) {
+function isMouse(s: string): boolean {
   return /\x1b\[M/.test(s)
     || /\x1b\[M([\x00\u0020-\uffff]{3})/.test(s)
     || /\x1b\[(\d+;\d+;\d+)M/.test(s)
